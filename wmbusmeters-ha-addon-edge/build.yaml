@@ -1,0 +1,5 @@
+# Base images for a local build (Settings > Add-ons > local add-on folder); the
+# release workflow uses the same defaults through home-assistant/builder.
+build_from:
+  aarch64: ghcr.io/home-assistant/aarch64-base:latest
+  amd64: ghcr.io/home-assistant/amd64-base:latest
