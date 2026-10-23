@@ -21,3 +21,4 @@ jobs:
           python3 -c 'import yaml' 2>/dev/null || pip install --quiet pyyaml
           python3 tests/test_workflows.py
           python3 tests/test_discovery_payloads.py
+          python3 tests/test_rfcat_wmbus.py

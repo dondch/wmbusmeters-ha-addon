@@ -45,6 +45,23 @@ In web configuration interface it should be provided in one line using `;` delim
 
 See [project README for more information][docs]
 
+#### RfCat dongles (YARD Stick One, Chronos, EMK)
+
+An RfCat dongle (CC1111 based, flashed with the RfCat firmware) receives T1 and C1 telegrams on
+868.95 MHz or S1 telegrams on 868.3 MHz. It is not found by `auto`, so name it in the
+`wmbusmeters configuration` section:
+
+```
+device=rtlwmbus:CMD(rfcat_wmbus tc)
+```
+
+Use `rfcat_wmbus s` for S1 meters. The receiver prints the telegrams in the rtl_wmbus format, so
+everything else (meters, keys, MQTT) is configured as for any other receiver. Nothing else on the
+host may use the dongle while the add-on runs.
+
+Received telegrams are logged without a signal strength (`rssi_dbm` is 0): the RfCat firmware does
+not pass the radio's RSSI to the host.
+
 #### Section: `meters`
 
 Specify your meters configuration parameters. The `driver` and `id` values can be read from the add-on logs after the initial start (with empty `meters` configuration). The `name` is your label for the meter and `key` is the encryption key to decrypt telegrams (if your meter use any).

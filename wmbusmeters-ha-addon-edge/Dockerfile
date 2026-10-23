@@ -28,6 +28,11 @@ RUN git clone --depth 1 https://github.com/steve-m/librtlsdr.git && \
     git clone --depth 1 https://github.com/merbanan/rtl_433.git && \
     git clone --depth 1 https://github.com/ED6E0F17/rtl_reset.git
 
+# rflib (the RfCat python library) drives CC1111 dongles such as the YARD Stick One for
+# rfcat_wmbus. Pinned to a commit; rfcat-patches/ holds fixes not yet released upstream.
+COPY rfcat-patches /rfcat-patches
+RUN git clone https://github.com/atlas0fd00m/rfcat.git &&     cd rfcat && git checkout cf7a4f9 &&     for p in /rfcat-patches/*.patch; do git apply "$p"; done
+
 WORKDIR /librtlsdr
 RUN cmake -B build -G Ninja \
         -DCMAKE_BUILD_TYPE=MinSizeRel \
@@ -78,7 +83,8 @@ RUN apk add --no-cache \
     py3-flask \
     py3-requests \
     py3-waitress \
-    py3-xmltodict
+    py3-xmltodict \
+    py3-usb
 
 WORKDIR /wmbusmeters
 
@@ -89,6 +95,12 @@ COPY --from=build /wmbusmeters/build/wmbusmeters /wmbusmeters/wmbusmeters
 COPY --from=build /rtl-wmbus/build/rtl_wmbus /usr/bin/rtl_wmbus
 COPY --from=build /rtl_433/build/src/rtl_433 /usr/bin/rtl_433
 COPY --from=build /rtl_reset/rtl_reset /usr/bin/rtl_reset
+
+# rfcat_wmbus receives wM-Bus telegrams with an RfCat dongle: device=rtlwmbus:CMD(rfcat_wmbus tc)
+COPY --from=build /rfcat/rflib /usr/lib/rfcat/rflib
+ENV PYTHONPATH=/usr/lib/rfcat
+COPY rfcat_wmbus.py /usr/bin/rfcat_wmbus
+RUN chmod a+x /usr/bin/rfcat_wmbus
 
 # send_meter_discovery.sh renders the discovery json with an xmq transform.
 COPY --from=build /usr/local/bin/xmq /usr/local/bin/xmq
