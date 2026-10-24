@@ -63,6 +63,11 @@ With the stock RfCat firmware telegrams are logged without a signal strength (`r
 because that firmware does not pass the radio's RSSI to the host; a firmware with the
 append-status fix (atlas0fd00m/rfcat, branch feature/firmware-append-status) fills it in.
 
+The receiver keeps its own log in the add-on data directory (`rfcat_wmbus.log`): start-up, every
+telegram line it hands to wmbusmeters, a packet counter every five minutes and any restart reason.
+Note that wmbusmeters echoes decoded meter readings into the add-on log only at log level `debug`;
+at `normal` the readings still reach MQTT.
+
 #### Section: `meters`
 
 Specify your meters configuration parameters. The `driver` and `id` values can be read from the add-on logs after the initial start (with empty `meters` configuration). The `name` is your label for the meter and `key` is the encryption key to decrypt telegrams (if your meter use any).
