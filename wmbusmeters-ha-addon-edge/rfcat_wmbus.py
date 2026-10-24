@@ -47,6 +47,9 @@ SET_IDLE = b"\xff\x88\x01\x00\x04"  # APP_SYSTEM, SYS_CMD_RFMODE, len=1, RFST_SI
 STALL_SECONDS = 60
 # A counter line on stderr this often; wmbusmeters shows it at loglevel debug.
 STATS_SECONDS = 300
+# The dongle can reboot (it then re-enumerates with default radio settings) and rflib reconnects
+# to it without a word, so the configuration is read back this often.
+VERIFY_SECONDS = 60
 
 
 def crc16(data):
@@ -163,8 +166,18 @@ def format_line(frame, when, rssi=None):
     return f"{frame.mode};{int(frame.complete)};1;{stamp};{rssi_s};;{meter_id(frame.payload)};0x{frame.payload.hex()}"
 
 
+LOG_FILE = os.environ.get("RFCAT_WMBUS_LOG", "/data/rfcat_wmbus.log" if os.path.isdir("/data") else "")
+
+
 def log(msg):
+    """stderr reaches wmbusmeters (shown at loglevel debug); the file keeps a record regardless."""
     print(f"(rfcat_wmbus) {msg}", file=sys.stderr, flush=True)
+    if LOG_FILE:
+        try:
+            with open(LOG_FILE, "a") as f:
+                f.write(time.strftime("%Y-%m-%d %H:%M:%S ") + msg + "\n")
+        except OSError:
+            pass
 
 
 def drain_dongle():
@@ -309,12 +322,28 @@ def main(argv=None):
 
     stats = collections.Counter()
     next_stats = time.time() + STATS_SECONDS
+    next_verify = time.time() + VERIFY_SECONDS
+    usb_handle = d._do
     while True:
-        if time.time() >= next_stats:
+        now = time.time()
+        if d._do is not usb_handle:
+            # rflib re-opened the dongle after a USB error, which it only reports on stderr
+            log(f"rflib reconnected to the dongle; mode {d.getMARCSTATE()}")
+            usb_handle = d._do
+        if now >= next_stats:
             log(f"last {STATS_SECONDS}s: {stats['sync']} sync matches, {stats['telegram']} telegrams, "
-                f"{stats['partial']} with a damaged tail")
+                f"{stats['partial']} with a damaged tail; dongle {d.reprDebugCodes().replace(chr(10), ', ')}")
             stats.clear()
-            next_stats = time.time() + STATS_SECONDS
+            next_stats = now + STATS_SECONDS
+        if now >= next_verify:
+            try:
+                bad = config_mismatches(d, profile, args.pktlen)
+            except ChipconUsbTimeoutException:
+                bad = ["dongle did not answer"]
+            if bad:
+                log("radio configuration lost, exiting: " + "; ".join(bad))
+                return 2
+            next_verify = now + VERIFY_SECONDS
         try:
             raw, _ = d.RFrecv(timeout=1000, blocksize=args.pktlen if args.pktlen > 255 else None)
         except ChipconUsbTimeoutException:
@@ -329,7 +358,9 @@ def main(argv=None):
         # patched one appends the RSSI and LQI status bytes.
         rssi = rssi_dbm(raw[args.pktlen]) if len(raw) >= args.pktlen + 2 else None
         raw = raw[:args.pktlen]
-        print(format_line(frame, last_packet, rssi), flush=True)
+        line = format_line(frame, last_packet, rssi)
+        print(line, flush=True)
+        log("emitted " + line[:60])
 
 
 if __name__ == "__main__":
