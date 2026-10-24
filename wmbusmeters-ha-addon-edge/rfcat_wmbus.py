@@ -232,6 +232,8 @@ def configure(d, profile, pktlen):
     d.setEnablePktDataWhitening(False)
     d.setEnableMdmManchester(False)
     d.setPktPQT(0)
+    # RSSI and LQI follow each packet; the stock firmware drops them, a patched one forwards them.
+    d.setEnablePktAppendStatus(True)
     d.setMdmSyncMode(rflib.SYNCM_16_of_16)
     d.makePktFLEN(pktlen)
     d.setFreq(profile.freq)
@@ -256,6 +258,7 @@ def config_mismatches(d, profile, pktlen):
         ("sync mode", rflib.SYNCM_16_of_16, d.getMdmSyncMode(cfg)),
         ("modulation", rflib.MOD_2FSK, d.getMdmModulation(cfg)),
         ("packet length", (pktlen & 0xFF, 0), d.getPktLEN()),
+        ("append status", 1, d.getEnablePktAppendStatus(cfg)),
     ]
     for name, value in profile.registers:
         expected.append((name, value, getattr(cfg, name.lower())))
@@ -322,9 +325,10 @@ def main(argv=None):
         if frame is None:
             continue
         stats["telegram" if frame.complete else "partial"] += 1
-        # The firmware only forwards the appended RSSI/LQI status bytes when it was patched to
-        # do so; without them the RSSI field stays empty.
+        # The stock firmware forwards exactly pktlen bytes and the RSSI field stays empty; a
+        # patched one appends the RSSI and LQI status bytes.
         rssi = rssi_dbm(raw[args.pktlen]) if len(raw) >= args.pktlen + 2 else None
+        raw = raw[:args.pktlen]
         print(format_line(frame, last_packet, rssi), flush=True)
 
 
