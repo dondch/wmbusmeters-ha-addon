@@ -45,6 +45,8 @@ SET_IDLE = b"\xff\x88\x01\x00\x04"  # APP_SYSTEM, SYS_CMD_RFMODE, len=1, RFST_SI
 
 # Noise matches the sync word every few seconds, so a longer silence means the dongle is stuck.
 STALL_SECONDS = 60
+# A counter line on stderr this often; wmbusmeters shows it at loglevel debug.
+STATS_SECONDS = 300
 
 
 def crc16(data):
@@ -240,6 +242,33 @@ def configure(d, profile, pktlen):
     d.setModeRX()
 
 
+def config_mismatches(d, profile, pktlen):
+    """Read the radio configuration back and list what differs from what was asked.
+
+    Every setting goes through the dongle as a separate USB round trip; a reply lost or
+    misparsed on the way leaves a radio that receives noise but never a telegram."""
+    import rflib
+
+    d.getRadioConfig()
+    cfg = d.radiocfg
+    expected = [
+        ("sync word", f"0x{profile.sync:04X}", f"0x{d.getMdmSyncWord(cfg):04X}"),
+        ("sync mode", rflib.SYNCM_16_of_16, d.getMdmSyncMode(cfg)),
+        ("modulation", rflib.MOD_2FSK, d.getMdmModulation(cfg)),
+        ("packet length", (pktlen & 0xFF, 0), d.getPktLEN()),
+    ]
+    for name, value in profile.registers:
+        expected.append((name, value, getattr(cfg, name.lower())))
+    within = [
+        ("frequency", profile.freq, d.getFreq(radiocfg=cfg)[0], 0.001),
+        ("data rate", profile.drate, d.getMdmDRate(radiocfg=cfg), 0.05),
+        ("deviation", 50_000, d.getMdmDeviatn(radiocfg=cfg), 0.1),
+    ]
+    bad = [f"{n}: wanted {w}, got {g}" for n, w, g in expected if w != g]
+    bad += [f"{n}: wanted {w}, got {g:.0f}" for n, w, g, tol in within if abs(g - w) > tol * w]
+    return bad
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("mode", nargs="?", default="tc", choices=sorted(PROFILES))
@@ -268,18 +297,31 @@ def main(argv=None):
     d = open_dongle()
     profile = PROFILES[args.mode]
     configure(d, profile, args.pktlen)
+    bad = config_mismatches(d, profile, args.pktlen)
+    if bad:
+        log("radio configuration did not apply, exiting: " + "; ".join(bad))
+        return 2
     decode = DECODERS[args.mode]
     log(f"listening mode={args.mode} freq={d.getFreq()[0] / 1e6:.3f}MHz drate={d.getMdmDRate():.0f} pktlen={args.pktlen}")
 
+    stats = collections.Counter()
+    next_stats = time.time() + STATS_SECONDS
     while True:
+        if time.time() >= next_stats:
+            log(f"last {STATS_SECONDS}s: {stats['sync']} sync matches, {stats['telegram']} telegrams, "
+                f"{stats['partial']} with a damaged tail")
+            stats.clear()
+            next_stats = time.time() + STATS_SECONDS
         try:
             raw, _ = d.RFrecv(timeout=1000, blocksize=args.pktlen if args.pktlen > 255 else None)
         except ChipconUsbTimeoutException:
             continue
         last_packet = time.time()
+        stats["sync"] += 1
         frame = decode(raw)
         if frame is None:
             continue
+        stats["telegram" if frame.complete else "partial"] += 1
         # The firmware only forwards the appended RSSI/LQI status bytes when it was patched to
         # do so; without them the RSSI field stays empty.
         rssi = rssi_dbm(raw[args.pktlen]) if len(raw) >= args.pktlen + 2 else None

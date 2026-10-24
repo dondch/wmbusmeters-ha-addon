@@ -116,6 +116,21 @@ def test_line_format_is_what_wmbusmeters_parses():
     assert line.startswith("C1;0;1;2026-10-23 21:04:00.000;;;27293981;0x3444ee4d")
 
 
+def test_configure_then_read_back_matches_on_fake_dongle():
+    # rflib ships a dongle emulator; the test is skipped where rflib is not installed (CI).
+    try:
+        from rflib.fakedongle_nic import FakeRfCat
+    except ImportError:
+        return
+    d = FakeRfCat()
+    rw.configure(d, rw.PROFILES["tc"], 255)
+    assert rw.config_mismatches(d, rw.PROFILES["tc"], 255) == []
+    rw.configure(d, rw.PROFILES["s"], 255)
+    assert rw.config_mismatches(d, rw.PROFILES["s"], 255) == []
+    d.setMdmSyncWord(0x1234)
+    assert rw.config_mismatches(d, rw.PROFILES["s"], 255) == ["sync word: wanted 0x7696, got 0x1234"]
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in tests:
