@@ -59,8 +59,9 @@ Use `rfcat_wmbus s` for S1 meters. The receiver prints the telegrams in the rtl_
 everything else (meters, keys, MQTT) is configured as for any other receiver. Nothing else on the
 host may use the dongle while the add-on runs.
 
-Received telegrams are logged without a signal strength (`rssi_dbm` is 0): the RfCat firmware does
-not pass the radio's RSSI to the host.
+With the stock RfCat firmware telegrams are logged without a signal strength (`rssi_dbm` is 0),
+because that firmware does not pass the radio's RSSI to the host; a firmware with the
+append-status fix (atlas0fd00m/rfcat, branch feature/firmware-append-status) fills it in.
 
 #### Section: `meters`
 
